@@ -344,11 +344,11 @@ function restart_reload() {
         requestGet("./internal/ping", {}, function(data) {
             location.reload();
         }, function() {
-            setTimeout(requestPing, 500);
+            setTimeout(requestPing, 5000);
         });
     };
 
-    setTimeout(requestPing, 2000);
+    setTimeout(requestPing, 10000);
 
     return [];
 }
