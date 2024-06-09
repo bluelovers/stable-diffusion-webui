@@ -1,0 +1,24 @@
+name: Sync Fork
+
+on:
+  push:
+    branches:
+      - dev-bluelovers
+  schedule:
+    - cron: '* * 1 * *'
+    - cron: '* * 15 * *'
+  workflow_dispatch: # on button click
+
+jobs:
+  sync:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: tgymnich/fork-sync@v2
+        with:
+          token: ${{ secrets.All2024_TOKEN }}
+          owner: AUTOMATIC1111
+          base: dev
+          head: dev-bluelovers
+          merge_method: rebase
