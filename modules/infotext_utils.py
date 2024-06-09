@@ -251,13 +251,16 @@ Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 965400086, Size: 512x512, Model
 
     done_with_prompt = False
 
-    *lines, lastline = x.strip().split("\n")
+    x = x.strip()
+
+    separator = '\00\00\00\n' if '\00\00\00\n' in x else '\u200b\u200b\u200b\n' if '\u200b\u200b\u200b\n' in x else '\n'
+    *lines, lastline = x.split(separator)
     if len(re_param.findall(lastline)) < 3:
         lines.append(lastline)
         lastline = ''
 
     for line in lines:
-        line = line.strip()
+        line = line.strip().replace(r'[\x00\u200b]+', '')
         if line.startswith("Negative prompt:"):
             done_with_prompt = True
             line = line[16:].strip()
@@ -266,6 +269,7 @@ Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 965400086, Size: 512x512, Model
         else:
             prompt += ("" if prompt == "" else "\n") + line
 
+    # 增加解析和处理数组和对象的逻辑
     for k, v in re_param.findall(lastline):
         try:
             v = v.strip()
@@ -282,6 +286,9 @@ Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 965400086, Size: 512x512, Model
                     res[f"{k}-1"] = m.group(1)
                     res[f"{k}-2"] = m.group(2)
                     continue
+
+            if isinstance(v, str):
+                v = v.strip()
 
         except Exception as e:
             print(f"Error parsing \"{k}: {v}\": {e}")
@@ -305,8 +312,8 @@ Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 965400086, Size: 512x512, Model
             if (shared.opts.infotext_styles == "Apply if any" and found_styles) or shared.opts.infotext_styles == "Apply":
                 res['Styles array'] = found_styles
 
-    res["Prompt"] = prompt
-    res["Negative prompt"] = negative_prompt
+    res["Prompt"] = prompt.replace(r'[\x00\u200b]+', '')
+    res["Negative prompt"] = negative_prompt.replace(r'[\x00\u200b]+', '')
 
     # Missing CLIP skip means it was set to 1 (the default)
     if "Clip skip" not in res:
