@@ -1,0 +1,11 @@
+version: "1"
+rules:
+  - base: master
+    upstream: AUTOMATIC1111:master
+    mergeMethod: rebase
+  - base: dev
+    upstream: AUTOMATIC1111:dev
+    mergeMethod: rebase
+  - base: dev-bluelovers
+    upstream: AUTOMATIC1111:dev
+    mergeMethod: rebase
