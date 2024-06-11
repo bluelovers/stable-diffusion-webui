@@ -20,16 +20,13 @@ div.gradio-image button[aria-label="Edit"] {
 }
 
 
-html:has(body.dark) {
-    /**
-     * The CSS variables --body-background-fill and --body-text-color are not apply to the HTML element with the dark theme
-     */
-    /* scrollbar-color: var(--body-text-color) var(--body-background-fill) */
-    scrollbar-color: #f3f4f6 #0b0f19;
+html {
+    scrollbar-color: var(--body-text-color) var(--body-background-fill)
 }
 
 body {
-    background: var(--body-background-fill, #0b0f19);
+    background: var(--body-background-fill);
+    color: var(--body-text-color);
 }
 
 .block.padded:not(.gradio-accordion) {

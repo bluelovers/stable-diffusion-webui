@@ -46,6 +46,10 @@ def css_html():
     dark = resolve_var('background_fill_primary_dark')
     head += f'<style>html {{ background-color: {light}; }} @media (prefers-color-scheme: dark) {{ html {{background-color:  {dark}; }} }}</style>'
 
+    light_text = resolve_var('body_text_color')
+    dark_text = resolve_var('body_text_color_dark')
+    head += f'<style>html {{ --body-background-fill: {light}; --body-text-color: {light_text}; }} html:has(body.dark) {{ --body-background-fill: {dark}; --body-text-color: {dark_text}; }}</style>'
+
     return head
 
 
