@@ -19,6 +19,16 @@ div.gradio-image button[aria-label="Edit"] {
 
 }
 
+
+html {
+    scrollbar-color: var(--body-text-color) var(--body-background-fill)
+}
+
+body {
+    /* background: var(--body-background-fill); */
+    color: var(--body-text-color);
+}
+
 .block.padded:not(.gradio-accordion) {
     padding: 0 !important;
 }
