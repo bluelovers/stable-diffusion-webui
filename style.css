@@ -720,10 +720,10 @@ table.popup-table .link{
     width: auto;
 }
 
-#lightboxModal > img.modalImageFullscreen{
+#lightboxModal img#modalImage.modalImageFullscreen {
     object-fit: contain;
-    height: 100%;
-    width: 100%;
+    max-height: 100%;
+    max-width: 100%;
     min-height: 0;
 }
 

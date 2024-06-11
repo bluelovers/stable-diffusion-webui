@@ -10,6 +10,7 @@ function showModal(event) {
     modalToggleLivePreviewBtn.innerHTML = opts.js_live_preview_in_modal_lightbox ? "&#x1F5C7;" : "&#x1F5C6;";
     const lb = gradioApp().getElementById("lightboxModal");
     modalImage.src = source.src;
+    modalImage.className = 'modalImageFullscreen';
     if (modalImage.style.display === 'none') {
         lb.style.setProperty('background-image', 'url(' + source.src + ')');
     }
