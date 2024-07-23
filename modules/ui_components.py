@@ -113,7 +113,7 @@ class InputAccordion(gr.Checkbox):
             "elem_id": self.accordion_id,
             "label": kwargs.get('label', 'Accordion'),
             "elem_classes": ['input-accordion'],
-            "open": value,
+            "open": kwargs.get("open", value),
         }
         self.accordion = gr.Accordion(**kwargs_accordion)
 
