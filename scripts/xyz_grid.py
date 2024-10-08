@@ -5,6 +5,9 @@ import random
 import csv
 import os.path
 from io import StringIO
+from collections.abc import Iterable
+from typing import Any
+
 from PIL import Image
 import numpy as np
 
@@ -612,19 +615,26 @@ class Script(scripts.Script):
 
             return valslist
 
+        def _handle_opt_values(opt, values: str, values_dropdown: Iterable[Any]):
+            if opt.choices is not None:
+                if not csv_mode:
+                    values = list_to_csv_string(values_dropdown)
+                elif isinstance(values, str):
+                    values = re.sub(r'\s*[\r\n]+\s*', '\n', values)
+                    values = re.sub(r'^[\n\s]+|[\n\s]+$', '', values)
+                    values = re.sub(r',?\s*\n+\s*,?', ',', values)
+            return values
+
         x_opt = self.current_axis_options[x_type]
-        if x_opt.choices is not None and not csv_mode:
-            x_values = list_to_csv_string(x_values_dropdown)
+        _handle_opt_values(x_opt, x_values, x_values_dropdown)
         xs = process_axis(x_opt, x_values, x_values_dropdown)
 
         y_opt = self.current_axis_options[y_type]
-        if y_opt.choices is not None and not csv_mode:
-            y_values = list_to_csv_string(y_values_dropdown)
+        _handle_opt_values(y_opt, y_values, y_values_dropdown)
         ys = process_axis(y_opt, y_values, y_values_dropdown)
 
         z_opt = self.current_axis_options[z_type]
-        if z_opt.choices is not None and not csv_mode:
-            z_values = list_to_csv_string(z_values_dropdown)
+        _handle_opt_values(z_opt, z_values, z_values_dropdown)
         zs = process_axis(z_opt, z_values, z_values_dropdown)
 
         # this could be moved to common code, but unlikely to be ever triggered anywhere else
