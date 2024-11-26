@@ -799,8 +799,11 @@ def read_info_from_image(image: Image.Image) -> tuple[str | None, dict]:
             json_info = json.loads(items["Comment"])
             sampler = sd_samplers.samplers_map.get(json_info["sampler"], "Euler a")
 
-            geninfo = f"""{items["Description"]}
-Negative prompt: {json_info["uc"]}
+            pp1 = items["Description"].strip("\u200b")
+            pp2 = json_info["uc"].strip("\u200b")
+
+            geninfo = f"""{pp1}\u200b\u200b\u200b
+Negative prompt: {pp2}\u200b\u200b\u200b
 Steps: {json_info["steps"]}, Sampler: {sampler}, CFG scale: {json_info["scale"]}, Seed: {json_info["seed"]}, Size: {image.width}x{image.height}, Clip skip: 2, ENSD: 31337"""
         except Exception:
             errors.report("Error parsing NovelAI image generation parameters", exc_info=True)
