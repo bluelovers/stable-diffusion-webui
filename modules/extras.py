@@ -18,9 +18,18 @@ def run_pnginfo(image):
         return '', '', ''
 
     geninfo, items = images.read_info_from_image(image)
-    items = {**{'parameters': geninfo}, **items}
 
     info = ''
+    # 先显示 parameters
+    if geninfo:
+        info += f"""
+<div class="infotext-parameters">
+<p><b>{plaintext_to_html('parameters')}</b></p>
+<p>{plaintext_to_html(str(geninfo))}</p>
+</div>
+""".strip()+"\n"
+    
+    # 再显示其他 items
     for key, text in items.items():
         info += f"""
 <div class="infotext">
@@ -29,7 +38,7 @@ def run_pnginfo(image):
 </div>
 """.strip()+"\n"
 
-    if len(info) == 0:
+    if len(info) == 0 and not geninfo:
         message = "Nothing found in the image."
         info = f"<div><p>{message}<p></div>"
 
