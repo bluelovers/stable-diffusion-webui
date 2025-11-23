@@ -24,7 +24,6 @@ def run_pnginfo(image):
     if geninfo:
         info += f"""
 <div class="infotext-parameters">
-<p><b>{plaintext_to_html('parameters')}</b></p>
 <p>{plaintext_to_html(str(geninfo))}</p>
 </div>
 """.strip()+"\n"
