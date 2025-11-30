@@ -305,6 +305,9 @@ def load_networks(names, te_multipliers=None, unet_multipliers=None, dyn_dims=No
         net = get_network_on_disk(name)
         if net is None:
             unavailable_networks.append(name)
+        elif already_loaded.get(name, None) is not None and not os.path.exists(net.filename):
+            # already loaded but file doesn't exist
+            unavailable_networks.append(name)
 
     if unavailable_networks:
         update_available_networks_by_names(unavailable_networks)
