@@ -278,6 +278,15 @@ def purge_networks_from_memory():
     devices.torch_gc()
 
 
+def get_network_on_disk(name):
+    """
+    available_networks.get(name, None) if name.lower() in forbidden_network_aliases else available_network_aliases.get(name, None)
+    """
+    if name.lower() in forbidden_network_aliases:
+        return available_networks.get(name, None)
+    return available_network_aliases.get(name, None)
+
+
 def load_networks(names, te_multipliers=None, unet_multipliers=None, dyn_dims=None):
     emb_db = sd_hijack.model_hijack.embedding_db
     already_loaded = {}
@@ -293,19 +302,18 @@ def load_networks(names, te_multipliers=None, unet_multipliers=None, dyn_dims=No
 
     unavailable_networks = []
     for name in names:
-        if name.lower() in forbidden_network_aliases and available_networks.get(name) is None:
-            unavailable_networks.append(name)
-        elif available_network_aliases.get(name) is None:
+        net = get_network_on_disk(name)
+        if net is None:
             unavailable_networks.append(name)
 
     if unavailable_networks:
         update_available_networks_by_names(unavailable_networks)
 
-    networks_on_disk = [available_networks.get(name, None) if name.lower() in forbidden_network_aliases else available_network_aliases.get(name, None) for name in names]
+    networks_on_disk = [get_network_on_disk(name) for name in names]
     if any(x is None for x in networks_on_disk):
         list_available_networks()
 
-        networks_on_disk = [available_networks.get(name, None) if name.lower() in forbidden_network_aliases else available_network_aliases.get(name, None) for name in names]
+        networks_on_disk = [get_network_on_disk(name) for name in names]
 
     failed_to_load_networks = []
 
