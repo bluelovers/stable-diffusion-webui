@@ -659,11 +659,42 @@ def network_MultiheadAttention_load_state_dict(self, *args, **kwargs):
 
 
 def process_network_files(names: list[str] | None = None):
-    candidates = list(shared.walk_files(shared.cmd_opts.lora_dir, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
-    candidates += list(shared.walk_files(shared.cmd_opts.lyco_dir_backcompat, allowed_extensions=[".pt", ".ckpt", ".safetensors"]))
+    # 1. 预处理目录列表
+    search_dirs = []
+    for dir_path in [shared.cmd_opts.lora_dir, shared.cmd_opts.lyco_dir_backcompat]:
+        if dir_path and os.path.exists(dir_path):
+            search_dirs.append(dir_path)
+    
+    if not search_dirs:
+        return
+
+    # 如果提供了 names 列表，创建跟踪集合用于提早停止
+    found_names = set() if names else None
+    target_names = set(names) if names else None
+    
+    # 2. 使用生成器避免内存占用
+    def filtered_file_generator():
+        allowed_ext = {".pt", ".ckpt", ".safetensors"}
+        seen_basenames = set()  # 基于文件名去重
+        
+        for dir_path in search_dirs:
+            for file_path in shared.walk_files(dir_path):
+                if os.path.isdir(file_path):
+                    continue
+                    
+                basename = os.path.basename(file_path)
+                if basename in seen_basenames:
+                    continue
+                    
+                ext = os.path.splitext(file_path)[1].lower()
+                if ext in allowed_ext:
+                    seen_basenames.add(basename)
+                    yield file_path
+    
+    candidates = filtered_file_generator()
+    
+    # 3. 尽早过滤不需要的文件
     for filename in candidates:
-        if os.path.isdir(filename):
-            continue
         name = os.path.splitext(os.path.basename(filename))[0]
         # if names is provided, only load networks with names in the list
         if names and name not in names:
@@ -681,6 +712,12 @@ def process_network_files(names: list[str] | None = None):
 
         available_network_aliases[name] = entry
         available_network_aliases[entry.alias] = entry
+
+        # 如果提供了 names 列表，检查是否所有目标都已找到
+        if found_names is not None:
+            found_names.add(name)
+            if found_names >= target_names:  # 所有目标都已找到
+                break
 
 
 def update_available_networks_by_names(names: list[str]):
