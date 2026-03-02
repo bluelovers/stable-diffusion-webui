@@ -6,11 +6,14 @@ function closeModal() {
 function showModal(event) {
     const source = event.target || event.srcElement;
     const modalImage = gradioApp().getElementById("modalImage");
+    const modalToggleLivePreviewBtn = gradioApp().getElementById("modal_toggle_live_preview");
+    modalToggleLivePreviewBtn.innerHTML = opts.js_live_preview_in_modal_lightbox ? "&#x1F5C7;" : "&#x1F5C6;";
     const lb = gradioApp().getElementById("lightboxModal");
     modalImage.src = source.src;
     if (modalImage.style.display === 'none') {
         lb.style.setProperty('background-image', 'url(' + source.src + ')');
     }
+    updateModalImage();
     lb.style.display = "flex";
     lb.focus();
 
@@ -29,23 +32,29 @@ function negmod(n, m) {
     return ((n % m) + m) % m;
 }
 
-function updateOnBackgroundChange() {
+function updateModalImage() {
     const modalImage = gradioApp().getElementById("modalImage");
-    if (modalImage && modalImage.offsetParent) {
-        let currentButton = selected_gallery_button();
-        let preview = gradioApp().querySelectorAll('.livePreview > img');
-        if (opts.js_live_preview_in_modal_lightbox && preview.length > 0) {
-            // show preview image if available
-            modalImage.src = preview[preview.length - 1].src;
-        } else if (currentButton?.children?.length > 0 && modalImage.src != currentButton.children[0].src) {
-            modalImage.src = currentButton.children[0].src;
-            if (modalImage.style.display === 'none') {
-                const modal = gradioApp().getElementById("lightboxModal");
-                modal.style.setProperty('background-image', `url(${modalImage.src})`);
-            }
+    let currentButton = selected_gallery_button();
+    let preview = gradioApp().querySelectorAll('.livePreview > img');
+    if (opts.js_live_preview_in_modal_lightbox && preview.length > 0) {
+        // show preview image if available
+        modalImage.src = preview[preview.length - 1].src;
+    } else if (currentButton?.children?.length > 0 && modalImage.src != currentButton.children[0].src) {
+        modalImage.src = currentButton.children[0].src;
+        if (modalImage.style.display === 'none') {
+            const modal = gradioApp().getElementById("lightboxModal");
+            modal.style.setProperty('background-image', `url(${modalImage.src})`);
         }
     }
 }
+
+function updateOnBackgroundChange() {
+    const modalImage = gradioApp().getElementById("modalImage");
+    if (modalImage && modalImage.offsetParent) {
+        updateModalImage();
+    }
+}
+const updateModalImageIfVisible = updateOnBackgroundChange;
 
 function modalImageSwitch(offset) {
     var galleryButtons = all_gallery_buttons();
@@ -152,6 +161,14 @@ function modalZoomToggle(event) {
     event.stopPropagation();
 }
 
+function modalLivePreviewToggle(event) {
+    const modalToggleLivePreview = gradioApp().getElementById("modal_toggle_live_preview");
+    opts.js_live_preview_in_modal_lightbox = !opts.js_live_preview_in_modal_lightbox;
+    modalToggleLivePreview.innerHTML = opts.js_live_preview_in_modal_lightbox ? "&#x1F5C7;" : "&#x1F5C6;";
+    updateModalImageIfVisible();
+    event.stopPropagation();
+}
+
 function modalTileImageToggle(event) {
     const modalImage = gradioApp().getElementById("modalImage");
     const modal = gradioApp().getElementById("lightboxModal");
@@ -208,6 +225,14 @@ document.addEventListener("DOMContentLoaded", function() {
     modalSave.addEventListener("click", modalSaveImage, true);
     modalSave.title = "Save Image(s)";
     modalControls.appendChild(modalSave);
+
+    const modalToggleLivePreview = document.createElement('span');
+    modalToggleLivePreview.className = 'modalToggleLivePreview cursor';
+    modalToggleLivePreview.id = "modal_toggle_live_preview";
+    modalToggleLivePreview.innerHTML = "&#x1F5C6;";
+    modalToggleLivePreview.onclick = modalLivePreviewToggle;
+    modalToggleLivePreview.title = "Toggle live preview";
+    modalControls.appendChild(modalToggleLivePreview);
 
     const modalClose = document.createElement('span');
     modalClose.className = 'modalClose cursor';

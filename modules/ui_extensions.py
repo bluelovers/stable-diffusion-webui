@@ -1,5 +1,6 @@
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
 from datetime import datetime, timezone
@@ -106,18 +107,24 @@ def check_updates(id_task, disable_list):
     exts = [ext for ext in extensions.extensions if ext.remote is not None and ext.name not in disabled]
     shared.state.job_count = len(exts)
 
-    for ext in exts:
-        shared.state.textinfo = ext.name
+    lock = threading.Lock()
 
+    def _check_update(ext):
         try:
             ext.check_updates()
         except FileNotFoundError as e:
             if 'FETCH_HEAD' not in str(e):
                 raise
         except Exception:
-            errors.report(f"Error checking updates for {ext.name}", exc_info=True)
+            with lock:
+                errors.report(f"Error checking updates for {ext.name}", exc_info=True)
+        with lock:
+            shared.state.textinfo = ext.name
+            shared.state.nextjob()
 
-        shared.state.nextjob()
+    with ThreadPoolExecutor(max_workers=max(1, int(shared.opts.concurrent_git_fetch_limit))) as executor:
+        for ext in exts:
+            executor.submit(_check_update, ext)
 
     return extension_table(), ""
 
@@ -624,37 +631,37 @@ def create_ui():
                 )
 
                 install_extension_button.click(
-                    fn=modules.ui.wrap_gradio_call(install_extension_from_index, extra_outputs=[gr.update(), gr.update()]),
+                    fn=modules.ui.wrap_gradio_call_no_job(install_extension_from_index, extra_outputs=[gr.update(), gr.update()]),
                     inputs=[extension_to_install, selected_tags, showing_type, filtering_type, sort_column, search_extensions_text],
                     outputs=[available_extensions_table, extensions_table, install_result],
                 )
 
                 search_extensions_text.change(
-                    fn=modules.ui.wrap_gradio_call(search_extensions, extra_outputs=[gr.update()]),
+                    fn=modules.ui.wrap_gradio_call_no_job(search_extensions, extra_outputs=[gr.update()]),
                     inputs=[search_extensions_text, selected_tags, showing_type, filtering_type, sort_column],
                     outputs=[available_extensions_table, install_result],
                 )
 
                 selected_tags.change(
-                    fn=modules.ui.wrap_gradio_call(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
+                    fn=modules.ui.wrap_gradio_call_no_job(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
                     inputs=[selected_tags, showing_type, filtering_type, sort_column, search_extensions_text],
                     outputs=[available_extensions_table, install_result]
                 )
 
                 showing_type.change(
-                    fn=modules.ui.wrap_gradio_call(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
+                    fn=modules.ui.wrap_gradio_call_no_job(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
                     inputs=[selected_tags, showing_type, filtering_type, sort_column, search_extensions_text],
                     outputs=[available_extensions_table, install_result]
                 )
 
                 filtering_type.change(
-                    fn=modules.ui.wrap_gradio_call(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
+                    fn=modules.ui.wrap_gradio_call_no_job(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
                     inputs=[selected_tags, showing_type, filtering_type, sort_column, search_extensions_text],
                     outputs=[available_extensions_table, install_result]
                 )
 
                 sort_column.change(
-                    fn=modules.ui.wrap_gradio_call(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
+                    fn=modules.ui.wrap_gradio_call_no_job(refresh_available_extensions_for_tags, extra_outputs=[gr.update()]),
                     inputs=[selected_tags, showing_type, filtering_type, sort_column, search_extensions_text],
                     outputs=[available_extensions_table, install_result]
                 )
@@ -667,7 +674,7 @@ def create_ui():
                 install_result = gr.HTML(elem_id="extension_install_result")
 
                 install_button.click(
-                    fn=modules.ui.wrap_gradio_call(lambda *args: [gr.update(), *install_extension_from_url(*args)], extra_outputs=[gr.update(), gr.update()]),
+                    fn=modules.ui.wrap_gradio_call_no_job(lambda *args: [gr.update(), *install_extension_from_url(*args)], extra_outputs=[gr.update(), gr.update()]),
                     inputs=[install_dirname, install_url, install_branch],
                     outputs=[install_url, extensions_table, install_result],
                 )

@@ -1,7 +1,9 @@
 import collections
+import importlib
 import os
 import sys
 import threading
+import enum
 
 import torch
 import re
@@ -10,9 +12,8 @@ from omegaconf import OmegaConf, ListConfig
 from urllib import request
 import ldm.modules.midas as midas
 
-from ldm.util import instantiate_from_config
-
 from modules import paths, shared, modelloader, devices, script_callbacks, sd_vae, sd_disable_initialization, errors, hashes, sd_models_config, sd_unet, sd_models_xl, cache, extra_networks, processing, lowvram, sd_hijack, patches
+from modules.hashes import partial_hash_from_cache as model_hash  # noqa: F401 for backwards compatibility
 from modules.timer import Timer
 from modules.shared import opts
 import tomesd
@@ -25,6 +26,14 @@ checkpoints_list = {}
 checkpoint_aliases = {}
 checkpoint_alisases = checkpoint_aliases  # for compatibility with old name
 checkpoints_loaded = collections.OrderedDict()
+
+
+class ModelType(enum.Enum):
+    SD1 = 1
+    SD2 = 2
+    SDXL = 3
+    SSD = 4
+    SD3 = 5
 
 
 def replace_key(d, key, new_key, value):
@@ -79,7 +88,7 @@ class CheckpointInfo:
         self.name = name
         self.name_for_extra = os.path.splitext(os.path.basename(filename))[0]
         self.model_name = os.path.splitext(name.replace("/", "_").replace("\\", "_"))[0]
-        self.hash = model_hash(filename)
+        self.hash = hashes.partial_hash_from_cache(filename)
 
         self.sha256 = hashes.sha256_from_cache(self.filename, f"checkpoint/{name}")
         self.shorthash = self.sha256[0:10] if self.sha256 else None
@@ -151,7 +160,7 @@ def list_models():
         model_url = None
         expected_sha256 = None
     else:
-        model_url = f"{shared.hf_endpoint}/runwayml/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors"
+        model_url = f"{shared.hf_endpoint}/stable-diffusion-v1-5/stable-diffusion-v1-5/resolve/main/v1-5-pruned-emaonly.safetensors"
         expected_sha256 = '6ce0161689b3853acaa03779ec93eafe75a02f4ced659bee03f50797806fa2fa'
 
     model_list = modelloader.load_models(model_path=model_path, model_url=model_url, command_path=shared.cmd_opts.ckpt_dir, ext_filter=[".ckpt", ".safetensors"], download_name="v1-5-pruned-emaonly.safetensors", ext_blacklist=[".vae.ckpt", ".vae.safetensors"], hash_prefix=expected_sha256)
@@ -190,21 +199,6 @@ def get_closet_checkpoint_match(search_string):
         return found[0]
 
     return None
-
-
-def model_hash(filename):
-    """old hash that only looks at a small part of the file and is prone to collisions"""
-
-    try:
-        with open(filename, "rb") as file:
-            import hashlib
-            m = hashlib.sha256()
-
-            file.seek(0x100000)
-            m.update(file.read(0x10000))
-            return m.hexdigest()[0:8]
-    except FileNotFoundError:
-        return 'NOFILE'
 
 
 def select_checkpoint():
@@ -368,6 +362,37 @@ def check_fp8(model):
     return enable_fp8
 
 
+def set_model_type(model, state_dict):
+    model.is_sd1 = False
+    model.is_sd2 = False
+    model.is_sdxl = False
+    model.is_ssd = False
+    model.is_sd3 = False
+
+    if "model.diffusion_model.x_embedder.proj.weight" in state_dict:
+        model.is_sd3 = True
+        model.model_type = ModelType.SD3
+    elif hasattr(model, 'conditioner'):
+        model.is_sdxl = True
+
+        if 'model.diffusion_model.middle_block.1.transformer_blocks.0.attn1.to_q.weight' not in state_dict.keys():
+            model.is_ssd = True
+            model.model_type = ModelType.SSD
+        else:
+            model.model_type = ModelType.SDXL
+    elif hasattr(model.cond_stage_model, 'model'):
+        model.is_sd2 = True
+        model.model_type = ModelType.SD2
+    else:
+        model.is_sd1 = True
+        model.model_type = ModelType.SD1
+
+
+def set_model_fields(model):
+    if not hasattr(model, 'latent_channels'):
+        model.latent_channels = 4
+
+
 def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer):
     sd_model_hash = checkpoint_info.calculate_shorthash()
     timer.record("calculate hash")
@@ -382,10 +407,13 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
     if state_dict is None:
         state_dict = get_checkpoint_state_dict(checkpoint_info, timer)
 
-    model.is_sdxl = hasattr(model, 'conditioner')
-    model.is_sd2 = not model.is_sdxl and hasattr(model.cond_stage_model, 'model')
-    model.is_sd1 = not model.is_sdxl and not model.is_sd2
-    model.is_ssd = model.is_sdxl and 'model.diffusion_model.middle_block.1.transformer_blocks.0.attn1.to_q.weight' not in state_dict.keys()
+    set_model_type(model, state_dict)
+    set_model_fields(model)
+    if 'ztsnr' in state_dict:
+        model.ztsnr = True
+    else:
+        model.ztsnr = False
+
     if model.is_sdxl:
         sd_models_xl.extend_sdxl(model)
 
@@ -396,8 +424,14 @@ def load_model_weights(model, checkpoint_info: CheckpointInfo, state_dict, timer
         # cache newly loaded model
         checkpoints_loaded[checkpoint_info] = state_dict.copy()
 
+    if hasattr(model, "before_load_weights"):
+        model.before_load_weights(state_dict)
+
     model.load_state_dict(state_dict, strict=False)
     timer.record("apply weights to model")
+
+    if hasattr(model, "after_load_weights"):
+        model.after_load_weights(state_dict)
 
     del state_dict
 
@@ -552,8 +586,7 @@ def patch_given_betas():
     original_register_schedule = patches.patch(__name__, ldm.models.diffusion.ddpm.DDPM, 'register_schedule', patched_register_schedule)
 
 
-def repair_config(sd_config):
-
+def repair_config(sd_config, state_dict=None):
     if not hasattr(sd_config.model.params, "use_ema"):
         sd_config.model.params.use_ema = False
 
@@ -563,8 +596,9 @@ def repair_config(sd_config):
         elif shared.cmd_opts.upcast_sampling or shared.cmd_opts.precision == "half":
             sd_config.model.params.unet_config.params.use_fp16 = True
 
-    if getattr(sd_config.model.params.first_stage_config.params.ddconfig, "attn_type", None) == "vanilla-xformers" and not shared.xformers_available:
-        sd_config.model.params.first_stage_config.params.ddconfig.attn_type = "vanilla"
+    if hasattr(sd_config.model.params, 'first_stage_config'):
+        if getattr(sd_config.model.params.first_stage_config.params.ddconfig, "attn_type", None) == "vanilla-xformers" and not shared.xformers_available:
+            sd_config.model.params.first_stage_config.params.ddconfig.attn_type = "vanilla"
 
     # For UnCLIP-L, override the hardcoded karlo directory
     if hasattr(sd_config.model.params, "noise_aug_config") and hasattr(sd_config.model.params.noise_aug_config.params, "clip_stats_path"):
@@ -578,6 +612,7 @@ def repair_config(sd_config):
         sd_config.model.params.network_config.params.use_checkpoint = False
     if hasattr(sd_config.model.params, "unet_config"):
         sd_config.model.params.unet_config.params.use_checkpoint = False
+
 
 
 def rescale_zero_terminal_snr_abar(alphas_cumprod):
@@ -616,7 +651,7 @@ def apply_alpha_schedule_override(sd_model, p=None):
             p.extra_generation_params['Downcast alphas_cumprod'] = opts.use_downcasted_alpha_bar
         sd_model.alphas_cumprod = sd_model.alphas_cumprod.half().to(shared.device)
 
-    if opts.sd_noise_schedule == "Zero Terminal SNR":
+    if opts.sd_noise_schedule == "Zero Terminal SNR" or (hasattr(sd_model, 'ztsnr') and sd_model.ztsnr):
         if p is not None:
             p.extra_generation_params['Noise Schedule'] = opts.sd_noise_schedule
         sd_model.alphas_cumprod = rescale_zero_terminal_snr_abar(sd_model.alphas_cumprod).to(shared.device)
@@ -679,11 +714,15 @@ def get_empty_cond(sd_model):
     p = processing.StableDiffusionProcessingTxt2Img()
     extra_networks.activate(p, {})
 
-    if hasattr(sd_model, 'conditioner'):
+    if hasattr(sd_model, 'get_learned_conditioning'):
         d = sd_model.get_learned_conditioning([""])
-        return d['crossattn']
     else:
-        return sd_model.cond_stage_model([""])
+        d = sd_model.cond_stage_model([""])
+
+    if isinstance(d, dict):
+        d = d['crossattn']
+
+    return d
 
 
 def send_model_to_cpu(m):
@@ -715,7 +754,26 @@ def send_model_to_trash(m):
     devices.torch_gc()
 
 
-def load_model(checkpoint_info=None, already_loaded_state_dict=None):
+def instantiate_from_config(config, state_dict=None):
+    constructor = get_obj_from_str(config["target"])
+
+    params = {**config.get("params", {})}
+
+    if state_dict and "state_dict" in params and params["state_dict"] is None:
+        params["state_dict"] = state_dict
+
+    return constructor(**params)
+
+
+def get_obj_from_str(string, reload=False):
+    module, cls = string.rsplit(".", 1)
+    if reload:
+        module_imp = importlib.import_module(module)
+        importlib.reload(module_imp)
+    return getattr(importlib.import_module(module, package=None), cls)
+
+
+def load_model(checkpoint_info=None, already_loaded_state_dict=None, checkpoint_config=None):
     from modules import sd_hijack
     checkpoint_info = checkpoint_info or select_checkpoint()
 
@@ -733,13 +791,14 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
     else:
         state_dict = get_checkpoint_state_dict(checkpoint_info, timer)
 
-    checkpoint_config = sd_models_config.find_checkpoint_config(state_dict, checkpoint_info)
+    if not checkpoint_config:
+        checkpoint_config = sd_models_config.find_checkpoint_config(state_dict, checkpoint_info)
     clip_is_included_into_sd = any(x for x in [sd1_clip_weight, sd2_clip_weight, sdxl_clip_weight, sdxl_refiner_clip_weight] if x in state_dict)
 
     timer.record("find config")
 
     sd_config = OmegaConf.load(checkpoint_config)
-    repair_config(sd_config)
+    repair_config(sd_config, state_dict)
 
     timer.record("load config")
 
@@ -749,7 +808,7 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
     try:
         with sd_disable_initialization.DisableInitialization(disable_clip=clip_is_included_into_sd or shared.cmd_opts.do_not_download_clip):
             with sd_disable_initialization.InitializeOnMeta():
-                sd_model = instantiate_from_config(sd_config.model)
+                sd_model = instantiate_from_config(sd_config.model, state_dict)
 
     except Exception as e:
         errors.display(e, "creating model quickly", full_traceback=True)
@@ -758,7 +817,7 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
         print('Failed to create model quickly; will retry using slow method.', file=sys.stderr)
 
         with sd_disable_initialization.InitializeOnMeta():
-            sd_model = instantiate_from_config(sd_config.model)
+            sd_model = instantiate_from_config(sd_config.model, state_dict)
 
     sd_model.used_config = checkpoint_config
 
@@ -775,6 +834,7 @@ def load_model(checkpoint_info=None, already_loaded_state_dict=None):
 
     with sd_disable_initialization.LoadStateDictOnMeta(state_dict, device=model_target_device(sd_model), weight_dtype_conversion=weight_dtype_conversion):
         load_model_weights(sd_model, checkpoint_info, state_dict, timer)
+
     timer.record("load weights from state dict")
 
     send_model_to_device(sd_model)
@@ -905,7 +965,7 @@ def reload_model_weights(sd_model=None, info=None, forced_reload=False):
         if sd_model is not None:
             send_model_to_trash(sd_model)
 
-        load_model(checkpoint_info, already_loaded_state_dict=state_dict)
+        load_model(checkpoint_info, already_loaded_state_dict=state_dict, checkpoint_config=checkpoint_config)
         return model_data.sd_model
 
     try:

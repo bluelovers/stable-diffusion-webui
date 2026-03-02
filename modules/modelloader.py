@@ -10,35 +10,12 @@ import torch
 
 from modules import shared
 from modules.upscaler import Upscaler, UpscalerLanczos, UpscalerNearest, UpscalerNone
+from modules.util import load_file_from_url  # noqa, backwards compatibility
 
 if TYPE_CHECKING:
     import spandrel
 
 logger = logging.getLogger(__name__)
-
-
-def load_file_from_url(
-    url: str,
-    *,
-    model_dir: str,
-    progress: bool = True,
-    file_name: str | None = None,
-    hash_prefix: str | None = None,
-) -> str:
-    """Download a file from `url` into `model_dir`, using the file present if possible.
-
-    Returns the path to the downloaded file.
-    """
-    os.makedirs(model_dir, exist_ok=True)
-    if not file_name:
-        parts = urlparse(url)
-        file_name = os.path.basename(parts.path)
-    cached_file = os.path.abspath(os.path.join(model_dir, file_name))
-    if not os.path.exists(cached_file):
-        print(f'Downloading: "{url}" to {cached_file}\n')
-        from torch.hub import download_url_to_file
-        download_url_to_file(url, cached_file, progress=progress, hash_prefix=hash_prefix)
-    return cached_file
 
 
 def load_models(model_path: str, model_url: str = None, command_path: str = None, ext_filter=None, download_name=None, ext_blacklist=None, hash_prefix=None) -> list:
@@ -139,6 +116,27 @@ def load_upscalers():
         key=lambda x: x.name.lower() if not isinstance(x.scaler, (UpscalerNone, UpscalerLanczos, UpscalerNearest)) else ""
     )
 
+# None: not loaded, False: failed to load, True: loaded
+_spandrel_extra_init_state = None
+
+
+def _init_spandrel_extra_archs() -> None:
+    """
+    Try to initialize `spandrel_extra_archs` (exactly once).
+    """
+    global _spandrel_extra_init_state
+    if _spandrel_extra_init_state is not None:
+        return
+
+    try:
+        import spandrel
+        import spandrel_extra_arches
+        spandrel.MAIN_REGISTRY.add(*spandrel_extra_arches.EXTRA_REGISTRY)
+        _spandrel_extra_init_state = True
+    except Exception:
+        logger.warning("Failed to load spandrel_extra_arches", exc_info=True)
+        _spandrel_extra_init_state = False
+
 
 def load_spandrel_model(
     path: str | os.PathLike,
@@ -148,11 +146,16 @@ def load_spandrel_model(
     dtype: str | torch.dtype | None = None,
     expected_architecture: str | None = None,
 ) -> spandrel.ModelDescriptor:
+    global _spandrel_extra_init_state
+
     import spandrel
+    _init_spandrel_extra_archs()
+
     model_descriptor = spandrel.ModelLoader(device=device).load_from_file(str(path))
-    if expected_architecture and model_descriptor.architecture != expected_architecture:
+    arch = model_descriptor.architecture
+    if expected_architecture and arch.name != expected_architecture:
         logger.warning(
-            f"Model {path!r} is not a {expected_architecture!r} model (got {model_descriptor.architecture!r})",
+            f"Model {path!r} is not a {expected_architecture!r} model (got {arch.name!r})",
         )
     half = False
     if prefer_half:
@@ -166,6 +169,6 @@ def load_spandrel_model(
     model_descriptor.model.eval()
     logger.debug(
         "Loaded %s from %s (device=%s, half=%s, dtype=%s)",
-        model_descriptor, path, device, half, dtype,
+        arch, path, device, half, dtype,
     )
     return model_descriptor

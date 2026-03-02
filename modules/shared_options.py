@@ -33,12 +33,12 @@ categories.register_category("training", "Training")
 
 options_templates.update(options_section(('saving-images', "Saving images/grids", "saving"), {
     "samples_save": OptionInfo(True, "Always save all generated images"),
-    "samples_format": OptionInfo('png', 'File format for images'),
+    "samples_format": OptionInfo('png', 'File format for images', ui_components.DropdownEditable, {"choices": ("png", "jpg", "jpeg", "webp", "avif")}).info("manual input of <a href='https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html' target='_blank'>other formats</a> is possible, but compatibility is not guaranteed"),
     "samples_filename_pattern": OptionInfo("", "Images filename pattern", component_args=hide_dirs).link("wiki", "https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Custom-Images-Filename-Name-and-Subdirectory"),
     "save_images_add_number": OptionInfo(True, "Add number to filename when saving", component_args=hide_dirs),
     "save_images_replace_action": OptionInfo("Replace", "Saving the image to an existing file", gr.Radio, {"choices": ["Replace", "Add number suffix"], **hide_dirs}),
     "grid_save": OptionInfo(True, "Always save all generated image grids"),
-    "grid_format": OptionInfo('png', 'File format for grids'),
+    "grid_format": OptionInfo('png', 'File format for grids', ui_components.DropdownEditable, {"choices": ("png", "jpg", "jpeg", "webp", "avif")}).info("manual input of <a href='https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html' target='_blank'>other formats</a> is possible, but compatibility is not guaranteed"),
     "grid_extended_filename": OptionInfo(False, "Add extended info (seed, prompt) to filename when saving grid"),
     "grid_only_if_multiple": OptionInfo(True, "Do not save grids consisting of one picture"),
     "grid_prevent_empty_spots": OptionInfo(False, "Prevent empty spots in grid (when set to autodetect)"),
@@ -64,6 +64,7 @@ options_templates.update(options_section(('saving-images', "Saving images/grids"
     "use_original_name_batch": OptionInfo(True, "Use original name for output filename during batch process in extras tab"),
     "use_upscaler_name_as_suffix": OptionInfo(False, "Use upscaler name as filename suffix in the extras tab"),
     "save_selected_only": OptionInfo(True, "When using 'Save' button, only save a single selected image"),
+    "save_write_log_csv": OptionInfo(True, "Write log.csv when saving images using 'Save' button"),
     "save_init_img": OptionInfo(False, "Save init images when using img2img"),
 
     "temp_dir":  OptionInfo("", "Directory for temporary images; leave empty for default"),
@@ -127,6 +128,7 @@ options_templates.update(options_section(('system', "System", "system"), {
     "disable_mmap_load_safetensors": OptionInfo(False, "Disable memmapping for loading .safetensors files.").info("fixes very slow loading speed in some cases"),
     "hide_ldm_prints": OptionInfo(True, "Prevent Stability-AI's ldm/sgm modules from printing noise to console."),
     "dump_stacks_on_signal": OptionInfo(False, "Print stack traces before exiting the program with ctrl+c."),
+    "concurrent_git_fetch_limit": OptionInfo(16, "Number of simultaneous extension update checks ", gr.Slider, {"step": 1, "minimum": 1, "maximum": 100}).info("reduce extension update check time"),
 }))
 
 options_templates.update(options_section(('profiler', "Profiler", "system"), {
@@ -191,6 +193,10 @@ options_templates.update(options_section(('sdxl', "Stable Diffusion XL", "sd"), 
     "sdxl_refiner_high_aesthetic_score": OptionInfo(6.0, "SDXL high aesthetic score", gr.Number).info("used for refiner model prompt"),
 }))
 
+options_templates.update(options_section(('sd3', "Stable Diffusion 3", "sd"), {
+    "sd3_enable_t5": OptionInfo(False, "Enable T5").info("load T5 text encoder; increases VRAM use by a lot, potentially improving quality of generation; requires model reload to apply"),
+}))
+
 options_templates.update(options_section(('vae', "VAE", "sd"), {
     "sd_vae_explanation": OptionHTML("""
 <abbr title='Variational autoencoder'>VAE</abbr> is a neural network that transforms a standard <abbr title='red/green/blue'>RGB</abbr>
@@ -226,7 +232,7 @@ options_templates.update(options_section(('img2img', "img2img", "sd"), {
 
 options_templates.update(options_section(('optimizations', "Optimizations", "sd"), {
     "cross_attention_optimization": OptionInfo("Automatic", "Cross attention optimization", gr.Dropdown, lambda: {"choices": shared_items.cross_attention_optimizations()}),
-    "s_min_uncond": OptionInfo(0.0, "Negative Guidance minimum sigma", gr.Slider, {"minimum": 0.0, "maximum": 15.0, "step": 0.01}, infotext='NGMS').link("PR", "https://github.com/AUTOMATIC1111/stablediffusion-webui/pull/9177").info("skip negative prompt for some steps when the image is almost ready; 0=disable, higher=faster"),
+    "s_min_uncond": OptionInfo(0.0, "Negative Guidance minimum sigma", gr.Slider, {"minimum": 0.0, "maximum": 15.0, "step": 0.01}, infotext='NGMS').link("PR", "https://github.com/AUTOMATIC1111/stable-diffusion-webui/pull/9177").info("skip negative prompt for some steps when the image is almost ready; 0=disable, higher=faster"),
     "s_min_uncond_all": OptionInfo(False, "Negative Guidance minimum sigma all steps", infotext='NGMS all steps').info("By default, NGMS above skips every other step; this makes it skip all steps"),
     "token_merging_ratio": OptionInfo(0.0, "Token merging ratio", gr.Slider, {"minimum": 0.0, "maximum": 0.9, "step": 0.1}, infotext='Token merging ratio').link("PR", "https://github.com/AUTOMATIC1111/stable-diffusion-webui/pull/9256").info("0=disable, higher=faster"),
     "token_merging_ratio_img2img": OptionInfo(0.0, "Token merging ratio for img2img", gr.Slider, {"minimum": 0.0, "maximum": 0.9, "step": 0.1}).info("only applies if non-zero and overrides above"),
@@ -245,7 +251,6 @@ options_templates.update(options_section(('compatibility', "Compatibility", "sd"
     "use_old_karras_scheduler_sigmas": OptionInfo(False, "Use old karras scheduler sigmas (0.1 to 10)."),
     "no_dpmpp_sde_batch_determinism": OptionInfo(False, "Do not make DPM++ SDE deterministic across different batch sizes."),
     "use_old_hires_fix_width_height": OptionInfo(False, "For hires fix, use width/height sliders to set final resolution rather than first pass (disables Upscale by, Resize width/height to)."),
-    "dont_fix_second_order_samplers_schedule": OptionInfo(False, "Do not fix prompt schedule for second order samplers."),
     "hires_fix_use_firstpass_conds": OptionInfo(False, "For hires fix, calculate conds of second pass using extra networks of first pass."),
     "use_old_scheduling": OptionInfo(False, "Use old prompt editing timelines.", infotext="Old prompt editing timelines").info("For [red:green:N]; old: If N < 1, it's a fraction of steps (and hires fix uses range from 0 to 1), if N >= 1, it's an absolute number of steps; new: If N has a decimal point in it, it's a fraction of steps (and hires fix uses range from 1 to 2), othewrwise it's an absolute number of steps"),
     "use_downcasted_alpha_bar": OptionInfo(False, "Downcast model alphas_cumprod to fp16 before sampling. For reproducing old seeds.", infotext="Downcast alphas_cumprod"),
@@ -287,6 +292,7 @@ options_templates.update(options_section(('extra_networks', "Extra Networks", "s
     "textual_inversion_print_at_load": OptionInfo(False, "Print a list of Textual Inversion embeddings when loading model"),
     "textual_inversion_add_hashes_to_infotext": OptionInfo(True, "Add Textual Inversion hashes to infotext"),
     "sd_hypernetwork": OptionInfo("None", "Add hypernetwork to prompt", gr.Dropdown, lambda: {"choices": ["None", *shared.hypernetworks]}, refresh=shared_items.reload_hypernetworks),
+    "textual_inversion_image_embedding_data_cache": OptionInfo(False, 'Cache the data of image embeddings').info('potentially increase TI load time at the cost some disk space'),
 }))
 
 options_templates.update(options_section(('ui_prompt_editing', "Prompt editing", "ui"), {
@@ -400,13 +406,15 @@ options_templates.update(options_section(('sampler-params', "Sampler parameters"
     'uni_pc_order': OptionInfo(3, "UniPC order", gr.Slider, {"minimum": 1, "maximum": 50, "step": 1}, infotext='UniPC order').info("must be < sampling steps"),
     'uni_pc_lower_order_final': OptionInfo(True, "UniPC lower order final", infotext='UniPC lower order final'),
     'sd_noise_schedule': OptionInfo("Default", "Noise schedule for sampling", gr.Radio, {"choices": ["Default", "Zero Terminal SNR"]}, infotext="Noise Schedule").info("for use with zero terminal SNR trained models"),
-    'skip_early_cond': OptionInfo(0.0, "Ignore negative prompt during early sampling", gr.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.01}, infotext="Skip Early CFG").info("disables CFG on a proportion of steps at the beginning of generation; 0=skip none; 1=skip all; can both improve sample diversity/quality and speed up sampling"),
+    'skip_early_cond': OptionInfo(0.0, "Ignore negative prompt during early sampling", gr.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.01}, infotext="Skip Early CFG").info("disables CFG on a proportion of steps at the beginning of generation; 0=skip none; 1=skip all; can both improve sample diversity/quality and speed up sampling; XYZ plot: Skip Early CFG"),
+    'beta_dist_alpha': OptionInfo(0.6, "Beta scheduler - alpha", gr.Slider, {"minimum": 0.01, "maximum": 5.0, "step": 0.01}, infotext='Beta scheduler alpha').info('Default = 0.6; the alpha parameter of the beta distribution used in Beta sampling'),
+    'beta_dist_beta': OptionInfo(0.6, "Beta scheduler - beta", gr.Slider, {"minimum": 0.01, "maximum": 5.0, "step": 0.01}, infotext='Beta scheduler beta').info('Default = 0.6; the beta parameter of the beta distribution used in Beta sampling'),
 }))
 
 options_templates.update(options_section(('postprocessing', "Postprocessing", "postprocessing"), {
-    'postprocessing_enable_in_main_ui': OptionInfo([], "Enable postprocessing operations in txt2img and img2img tabs", ui_components.DropdownMulti, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts()]}),
-    'postprocessing_disable_in_extras': OptionInfo([], "Disable postprocessing operations in extras tab", ui_components.DropdownMulti, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts()]}),
-    'postprocessing_operation_order': OptionInfo([], "Postprocessing operation order", ui_components.DropdownMulti, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts()]}),
+    'postprocessing_enable_in_main_ui': OptionInfo([], "Enable postprocessing operations in txt2img and img2img tabs", ui_components.DropdownMulti, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts(filter_out_extra_only=True)]}),
+    'postprocessing_disable_in_extras': OptionInfo([], "Disable postprocessing operations in extras tab", ui_components.DropdownMulti, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts(filter_out_main_ui_only=True)]}),
+    'postprocessing_operation_order': OptionInfo([], "Postprocessing operation order", ui_components.DropdownMulti, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts(filter_out_main_ui_only=True)]}),
     'upscaling_max_images_in_cache': OptionInfo(5, "Maximum number of images in upscaling cache", gr.Slider, {"minimum": 0, "maximum": 10, "step": 1}),
     'postprocessing_existing_caption_action': OptionInfo("Ignore", "Action for existing captions", gr.Radio, {"choices": ["Ignore", "Keep", "Prepend", "Append"]}).info("when generating captions using postprocessing; Ignore = use generated; Keep = use original; Prepend/Append = combine both"),
 }))
